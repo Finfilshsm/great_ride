@@ -1,0 +1,56 @@
+# OpenAI / API 키
+.env
+.openai_key
+*.key
+secrets/
+
+# Logs
+*.log
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# 임시 작업
+_tmp_*/
+_narration_*/
+*.cache
+
+# BGM (라이선스 + 용량 — 별도 관리, 사용자가 ~/Downloads/bgm/ 같은 곳에 직접 보관)
+_파이프라인/bgm/*.mp3
+_파이프라인/bgm/*.wav
+_파이프라인/bgm/*.m4a
+_파이프라인/bgm/*.flac
+!_파이프라인/bgm/README.md
+
+# 큰 비디오 출력 (라이딩별 결과는 Google Drive)
+*.MP4
+*.mp4
+*.mov
+*.avi
+*.mkv
+output_videos/
+
+# 라이딩별 개인 데이터 (분석 결과·메타·자막) — 절대 커밋 금지
+ride_meta.json
+coaching.srt
+coaching_synced.srt
+narration.srt
+narration_synced.srt
+*.fit
+*.fits
+_analysis.json
+_videos.json
+_highlight_plan.json
+_narration_extras.json
+
+# 인트로/아웃트로 mp4 — 코드만 커밋, 영상은 첫 실행 시 생성
+_파이프라인/intro_video/*.mp4
+_파이프라인/outro_video/*.mp4
