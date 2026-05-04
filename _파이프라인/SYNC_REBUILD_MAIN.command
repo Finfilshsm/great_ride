@@ -58,7 +58,7 @@ fi
 TMP=$(mktemp -d -t synced); trap "rm -rf '$TMP'" EXIT
 python3 "$PIPE_DIR/lib/srt_to_ass.py" "$SYNCED" "$TMP/c.ass" "AppleSDGothicNeo"
 cd "$TMP"
-"$FFMPEG" -y -i "$SRC" -vf "subtitles=c.ass" $ENC -c:a copy -movflags +faststart "$OUTPUT"
+"$FFMPEG" -y -i "$SRC" -vf "subtitles=filename=c.ass" $ENC -c:a copy -movflags +faststart "$OUTPUT"
 
 SIZE=$(stat -f%z "$OUTPUT" 2>/dev/null || stat -c%s "$OUTPUT")
 echo ""
