@@ -20,7 +20,8 @@
 
 set -e
 
-TOOLS_DIR="/Volumes/McMini4TB/GoodleDrive_JYJ/JYJ/04_Cycling/Gran Fondo/cycling-tools/_파이프라인"
+# 자기 위치 기준 — 어느 PC에서도 동작
+TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ----- 라이딩 폴더 선택 다이얼로그 -----
 RIDE_DIR=$(osascript <<'OSAEOF'
@@ -66,13 +67,10 @@ echo "  ✓ .fit: $(basename "$FIT_FILE")"
 echo "  ✓ GoPro MP4: ${GOPRO_COUNT}개"
 
 if [ ! -f "$RIDE_DIR/_analysis.json" ]; then
-  echo ""
-  echo "  ⚠ _analysis.json 없음"
-  echo "    .fit 자동 분석은 다음 단계에서 보강 예정"
-  echo "    현재는 별도 도구로 _analysis.json 생성 후 다시 실행 필요"
-  echo "    (헐몰헐 _analysis.json 구조 참조)"
-  exit 1
+  echo "  → _analysis.json 자동 생성 (lib/build_analysis.py)..."
+  python3 "$TOOLS_DIR/lib/build_analysis.py" "$RIDE_DIR" 2>&1 | tail -8
 fi
+[ ! -f "$RIDE_DIR/_analysis.json" ] && { echo "  ✗ _analysis.json 생성 실패"; exit 1; }
 echo "  ✓ _analysis.json"
 
 # ride_meta.json 자동 생성 (폴더명 기반)
@@ -88,47 +86,10 @@ with open(os.path.join('$RIDE_DIR', 'ride_meta.json'), 'w') as f:
 fi
 echo ""
 
-# ----- [2] _videos.json 자동 생성 -----
-echo "[2] GoPro 챕터 매핑 (_videos.json) 자동 추출..."
+# ----- [2] _videos.json 자동 생성 (lib/build_videos_json.py 사용 — 파일별 creation_time 정확) -----
+echo "[2] GoPro 챕터 매핑 (_videos.json)..."
 if [ ! -f "$RIDE_DIR/_videos.json" ]; then
-  python3 - <<PYEOF
-import json, subprocess
-from pathlib import Path
-from datetime import datetime, timedelta
-
-ride = Path("$RIDE_DIR")
-gp = sorted(list(ride.glob("GX*.MP4")) + list(ride.glob("GX*.mp4")))
-videos = []
-for mp4 in gp:
-    out = subprocess.check_output([
-        "$FFPROBE", "-v", "error",
-        "-show_entries", "format_tags=creation_time:format=duration",
-        "-of", "json", str(mp4)
-    ], text=True)
-    info = json.loads(out).get("format", {})
-    videos.append({
-        "file": mp4.name,
-        "creation_time": info.get("tags", {}).get("creation_time", ""),
-        "duration_s": float(info.get("duration", 0))
-    })
-videos.sort(key=lambda v: (v["creation_time"], v["file"]))
-
-# GoPro creation_time이 모두 동일한 경우 → 첫 챕터 시각 + 누적 duration
-if videos:
-    try:
-        base = datetime.fromisoformat(videos[0]["creation_time"].replace("Z","+00:00"))
-    except Exception:
-        base = datetime.now()
-    chrono = []
-    cum = 0
-    for v in videos:
-        st = base + timedelta(seconds=cum)
-        chrono.append({"file": v["file"], "start_utc": st.isoformat(), "duration_s": v["duration_s"]})
-        cum += v["duration_s"]
-    with open(ride/"_videos.json", "w") as f:
-        json.dump({"ride_videos_chronological": chrono}, f, indent=2, default=str)
-    print(f"  ✓ _videos.json: {len(chrono)}개 챕터")
-PYEOF
+  python3 "$TOOLS_DIR/lib/build_videos_json.py" "$RIDE_DIR" 2>&1 | grep -E "✓|⚠"
 else
   echo "  → 이미 있음 (skip)"
 fi
