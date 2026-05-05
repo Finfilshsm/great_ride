@@ -269,18 +269,21 @@ def card_seorak_readiness(out_path, db):
         text_centered_panel = lambda txt, ty, fnt, col: text_xy(d, txt, gx + GW // 2, GY + ty, fnt, col, anchor='ct')
         text_centered_panel(label, 30, font(34, 'ex'), TEXT_M)
 
-        # 게이지 (반원)
-        ggx, ggy, ggr = gx + GW // 2, GY + 180, 80
-        d.arc([ggx - ggr, ggy - ggr, ggx + ggr, ggy + ggr], 180, 360, fill=DIVIDER, width=12)
-        end = 180 + (pct / 100) * 180
+        # 색상 결정
         if pct >= 75:
             gc = ACCENT2
         elif pct >= 50:
             gc = ACCENT
         else:
             gc = ACCENT3
-        d.arc([ggx - ggr, ggy - ggr, ggx + ggr, ggy + ggr], 180, end, fill=gc, width=12)
-        text_centered_panel(f"{pct}%", 110, font(56, 'ex'), gc)
+
+        # 풀 원 게이지 (종합 게이지와 디자인 통일) — 12시부터 시계 방향
+        ggx, ggy, ggr = gx + GW // 2, GY + 165, 65
+        d.arc([ggx - ggr, ggy - ggr, ggx + ggr, ggy + ggr], 0, 360, fill=DIVIDER, width=10)
+        end_angle = -90 + (pct / 100) * 360
+        d.arc([ggx - ggr, ggy - ggr, ggx + ggr, ggy + ggr], -90, end_angle, fill=gc, width=10)
+        # 게이지 중앙 % 텍스트 (호와 안 겹치게 작게)
+        text_centered_panel(f"{pct}%", 140, font(44, 'ex'), gc)
 
         # 현재값 / 목표값
         if key == 'distance':
@@ -297,8 +300,8 @@ def card_seorak_readiness(out_path, db):
             curr = f"{cur_dec}%" if cur_dec else '?'
             targ = f"목표 ≤ {dim.get('target_max', 8)}%"
 
-        text_centered_panel(curr, 270, font(28, 'bold'), TEXT_M)
-        text_centered_panel(targ, 310, font(20, 'reg'), TEXT_S)
+        text_centered_panel(curr, 280, font(28, 'bold'), TEXT_M)
+        text_centered_panel(targ, 320, font(20, 'reg'), TEXT_S)
 
     # 하단 요약
     if overall >= 75:
