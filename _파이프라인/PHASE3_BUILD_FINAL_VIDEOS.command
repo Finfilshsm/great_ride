@@ -36,9 +36,21 @@ echo "  ✓ 본편: $(du -h "$MAIN_VIDEO" | cut -f1)"
 echo "  ✓ BGM: ${BGM_FILE:-(없음)}"
 echo ""
 
-# ----- [A] 카드 PNG 동적 생성 -----
+# ----- [A] 카드 PNG 동적 생성 (라이딩 + 누적 + 한국 인트로) -----
 echo "[A] 라이딩별 카드 PNG 동적 생성..."
 python3 "$LIB_DIR/build_highlight_cards.py" "$RIDE_DIR"
+echo ""
+echo "[A2] 누적 athlete_db 갱신..."
+python3 "$LIB_DIR/athlete_db.py" "$(dirname "$RIDE_DIR")" 2>&1 | tail -5
+echo ""
+echo "[A3] 진행도 카드 (journey · load · readiness)..."
+python3 "$LIB_DIR/build_progress_cards.py" "$RIDE_DIR"
+echo ""
+echo "[A4] 한국 지도 인트로 + GPS 트랙..."
+python3 "$LIB_DIR/build_intro_korea_map.py" "$RIDE_DIR"
+echo ""
+echo "[A5] 다각적 브리핑 마크다운..."
+(cd "$LIB_DIR" && python3 build_athlete_briefing.py "$RIDE_DIR")
 echo ""
 
 # ----- [B] 아웃트로 PNG 신규 생성 (코스·거리 동적) -----
@@ -91,17 +103,22 @@ png_to_mp4() {
 }
 
 echo "[C] 카드/아웃트로 mp4 변환..."
+# 인트로(한국지도) → 라이딩 데이터 → 설악 준비도 → CTL/ATL/TSB → 주간부하 → 용어 → 코스 → climb → 분석 → 결론 → 액션 → 아웃트로
 declare -a CARD_LIST=(
-  "card1_overview.png|10|01_intro_overview.mp4"
-  "card2_glossary.png|12|02_glossary.mp4"
-  "card_course_profile.png|6|03_course_profile.mp4"
-  "card_course_climbs.png|6|04_course_climbs.mp4"
-  "card_best_climb_intro.png|4|05_best_intro.mp4"
-  "card_transition.png|7|07_transition.mp4"
-  "card_fade_climb_intro.png|4|08_fade_intro.mp4"
-  "card3_analysis.png|14|10_analysis.mp4"
-  "card_conclusion.png|12|11_conclusion.mp4"
-  "card_action.png|12|12_action.mp4"
+  "card_intro_korea.png|10|00_intro_korea.mp4"
+  "card1_overview.png|8|01_intro_overview.mp4"
+  "card_seorak_readiness.png|10|02a_seorak_readiness.mp4"
+  "card_athlete_journey.png|8|02b_athlete_journey.mp4"
+  "card_weekly_load.png|6|02c_weekly_load.mp4"
+  "card2_glossary.png|10|03_glossary.mp4"
+  "card_course_profile.png|6|04_course_profile.mp4"
+  "card_course_climbs.png|6|05_course_climbs.mp4"
+  "card_best_climb_intro.png|4|06_best_intro.mp4"
+  "card_transition.png|7|08_transition.mp4"
+  "card_fade_climb_intro.png|4|09_fade_intro.mp4"
+  "card3_analysis.png|12|11_analysis.mp4"
+  "card_conclusion.png|12|12_conclusion.mp4"
+  "card_action.png|12|13_action.mp4"
 )
 START=$(date +%s)
 for entry in "${CARD_LIST[@]}"; do
@@ -115,8 +132,8 @@ for entry in "${CARD_LIST[@]}"; do
   printf "  → %-30s (%2ss)\n" "$OUT_NAME" "$DUR"
   png_to_mp4 "$PNG_PATH" "$DUR" "$OUT_PATH"
 done
-printf "  → %-30s (%2ss)\n" "13_outro.mp4" "8"
-png_to_mp4 "$OUTRO_PNG" "8" "$WORK_DIR/13_outro.mp4"
+printf "  → %-30s (%2ss)\n" "14_outro.mp4" "8"
+png_to_mp4 "$OUTRO_PNG" "8" "$WORK_DIR/14_outro.mp4"
 echo "  ✓ ${#CARD_LIST[@]}+1 카드 변환: $(($(date +%s)-START))초"
 echo ""
 
@@ -178,18 +195,21 @@ trim_main() {
 
 echo "[E] 클라임 영상 90초 발췌..."
 START=$(date +%s)
-echo "  → 06_best_excerpt.mp4"
-trim_main "$BEST_VT" "$BEST_START" "90" "$WORK_DIR/06_best_excerpt.mp4"
-echo "  → 09_fade_excerpt.mp4"
-trim_main "$FADE_VT" "$FADE_START" "90" "$WORK_DIR/09_fade_excerpt.mp4"
+echo "  → 07_best_excerpt.mp4"
+trim_main "$BEST_VT" "$BEST_START" "90" "$WORK_DIR/07_best_excerpt.mp4"
+echo "  → 10_fade_excerpt.mp4"
+trim_main "$FADE_VT" "$FADE_START" "90" "$WORK_DIR/10_fade_excerpt.mp4"
 echo "  ✓ 발췌: $(($(date +%s)-START))초"
 echo ""
 
-# ----- [F] 시퀀스 concat -----
-echo "[F] 13개 클립 concat..."
+# ----- [F] 시퀀스 concat (15개 클립) -----
+echo "[F] 15개 클립 concat (한국 인트로 → 라이딩 → 누적 분석 → 클라임 → 결론 → 아웃트로)..."
 CONCAT_LIST="$WORK_DIR/_concat_highlight.txt"
 {
-  for f in 01_intro_overview 02_glossary 03_course_profile 04_course_climbs 05_best_intro 06_best_excerpt 07_transition 08_fade_intro 09_fade_excerpt 10_analysis 11_conclusion 12_action 13_outro; do
+  for f in 00_intro_korea 01_intro_overview 02a_seorak_readiness 02b_athlete_journey 02c_weekly_load \
+           03_glossary 04_course_profile 05_course_climbs \
+           06_best_intro 07_best_excerpt 08_transition 09_fade_intro 10_fade_excerpt \
+           11_analysis 12_conclusion 13_action 14_outro; do
     [ -f "$WORK_DIR/${f}.mp4" ] && echo "file '$WORK_DIR/${f}.mp4'"
   done
 } > "$CONCAT_LIST"
@@ -227,13 +247,13 @@ else
 fi
 echo ""
 
-# ----- [H] 본편 + 인트로 + 아웃트로 결합 -----
-echo "[H] 본편 + 인트로 + 아웃트로 결합..."
+# ----- [H] 본편 + 인트로(한국 지도) + 아웃트로 결합 -----
+echo "[H] 본편 + 한국 지도 인트로 + 아웃트로 결합..."
 FULL_CONCAT="$WORK_DIR/_concat_full.txt"
 {
-  echo "file '$WORK_DIR/01_intro_overview.mp4'"
+  echo "file '$WORK_DIR/00_intro_korea.mp4'"
   echo "file '$MAIN_VIDEO'"
-  echo "file '$WORK_DIR/13_outro.mp4'"
+  echo "file '$WORK_DIR/14_outro.mp4'"
 } > "$FULL_CONCAT"
 START=$(date +%s)
 caffeinate -i "$FFMPEG" -y -hide_banner -loglevel warning \
