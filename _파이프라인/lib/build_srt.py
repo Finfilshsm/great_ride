@@ -220,39 +220,52 @@ def cue_outro(analysis, total_video_s):
 
     cues = []
 
-    # 1) Mean-max 하이라이트 (50초 전)
+    # 1) Mean-max 하이라이트 (-58)
     p5 = mmp.get('300s', 0) or 0
     p20 = mmp.get('1200s', 0) or 0
     if p20 > 0:
-        cues.append((max(0, total_video_s - 50), 8, [
+        cues.append((max(0, total_video_s - 58), 7, [
             f"[오늘의 베스트 출력]",
             f"5분 {p5:.0f}W · 20분 {p20:.0f}W · 1분 {mmp.get('60s', 0):.0f}W",
         ], 0))
 
-    # 2) Seorak 시뮬 (38초 전)
+    # 2) Seorak 시뮬 (-50, 10s)
     if seo:
         c1 = '✓' if seo.get('cutoff_1_pass') else '✗'
         c2 = '✓' if seo.get('cutoff_2_pass') else '✗'
-        cues.append((max(0, total_video_s - 38), 10, [
+        cues.append((max(0, total_video_s - 50), 10, [
             f"[Seorak GF 시뮬 — D-day {seo.get('race_date','?')}]",
             f"오늘 페이스로 완주: {seo.get('adjusted_finish_h','?')}h (목표 10h)",
             f"컷오프1 {c1} · 컷오프2 {c2} · 종합 가능성 {seo.get('feasibility_pct','?')}%",
         ], 0))
 
-    # 3) 페이싱 평가 (25초 전)
+    # 2b) TDF 10년 trajectory (-39, 11s)
+    tdf = analysis.get('tdf_trajectory') or {}
+    if tdf and tdf.get('current_wpk'):
+        nm = tdf.get('next_milestone') or {}
+        eta = nm.get('eta_years')
+        eta_str = f"ETA {eta}y" if eta else 'ETA 추세 누적 중'
+        cues.append((max(0, total_video_s - 39), 11, [
+            f"[TDF 10년 trajectory · 진척 {tdf.get('progress_pct',0)}%]",
+            f"현재 {tdf.get('current_wpk',0)} W/kg → 목표 {tdf.get('target_wpk',4.5)} W/kg ({tdf.get('target_year',2036)})",
+            f"필요 +{tdf.get('annual_increase_needed',0):.2f}/yr · {tdf.get('status','')[:34]}",
+            f"다음: {nm.get('label','')} ({nm.get('wpk','?')} W/kg, {eta_str})",
+        ], 0))
+
+    # 3) 페이싱 평가 (-27, 10s)
     verdict_msg = {
         'positive_split': '후반에 더 강함 — 영양·전략 성공',
         'even': '균형 페이스 — 안정 라이딩',
         'negative_split': '후반 페이스 떨어짐 — 영양·페이싱 점검',
         'severe_fade': '후반 급격한 페이드 — 영양·강도 재설계 필요',
     }.get(halves.get('verdict'), '')
-    cues.append((max(0, total_video_s - 25), 11, [
+    cues.append((max(0, total_video_s - 27), 10, [
         "[오늘의 종합 평가]",
         f"TSS {tss} · IF {summ.get('if_', 0)} · VI {summ.get('vi', 0)} · 디커플링 {decoupling}%",
         verdict_msg or f"회복 권장 {72 if tss > 250 else 48}h",
     ], 0))
 
-    # 3) 다음 액션 (12초 전)
+    # 3) 다음 액션 (-15, 13s)
     actions = []
     if decoupling > 10:
         actions.append(f"1. 영양 +20g/h (현재 권장 {fueling.get('carb_per_h_g', 60)}g/h → 시도 80g/h)")
@@ -265,7 +278,7 @@ def cue_outro(analysis, total_video_s):
             "1. 페이스·영양 패턴 유지하며 거리 5~10% 증량",
             "2. 다음 라이딩 전 충분한 회복",
         ]
-    cues.append((max(0, total_video_s - 12), 11, [
+    cues.append((max(0, total_video_s - 15), 13, [
         "[다음 라이딩 액션]",
     ] + actions[:2], 0))
 

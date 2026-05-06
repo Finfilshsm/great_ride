@@ -736,11 +736,30 @@ def build_analysis(fit_path, rider=None):
     fueling = fueling_recommendation(summary['tss'], moving_s, rider['weight_kg'], summary['distance_km'])
     endurance = endurance_metrics(records, rider['ftp_w'], rider['lthr'])
 
-    # Seorak 시뮬 (옵션, lib.seorak 사용 가능 시)
+    # Seorak 시뮬 + TDF 10년 trajectory (옵션, lib.seorak 사용 가능 시)
     seorak_sim = None
+    tdf_traj = None
     try:
         import seorak
         seorak_sim = seorak.seorak_simulation(summary)
+        # athlete_db.json 있으면 ftp_trend 활용 — 두 단계 위 (data 폴더)
+        ftp_trend = None
+        for parent in [Path(fit_path).parent, Path(fit_path).parent.parent]:
+            db_path = parent / 'athlete_db.json'
+            if db_path.exists():
+                try:
+                    db = json.loads(db_path.read_text(encoding='utf-8'))
+                    ftp_trend = db.get('ftp_trend')
+                    break
+                except Exception:
+                    pass
+        tdf_traj = seorak.tdf_trajectory(
+            current_wpk=rider.get('w_per_kg'),
+            ftp_trend=ftp_trend,
+            today_tss=summary.get('tss'),
+            weight_kg=rider.get('weight_kg'),
+            today_iso=ride_start_utc[:10] if ride_start_utc else None,
+        )
     except Exception:
         pass
 
@@ -762,6 +781,7 @@ def build_analysis(fit_path, rider=None):
         'fueling': fueling,
         'endurance': endurance,
         'seorak_simulation': seorak_sim,
+        'tdf_trajectory': tdf_traj,
     }
     return out
 

@@ -420,6 +420,116 @@ def seorak_simulation(today_summary, race=None):
     }
 
 
+# ───────── TDF 10년 trajectory ─────────
+
+TDF_TARGET_WPK = 4.5  # Pro/Elite TDF 입문선
+TDF_PROJECT_START_YEAR = 2026
+TDF_PROJECT_TARGET_YEAR = 2036
+TDF_MILESTONES = [
+    (2.5, 'Cat 4-5 입문'),
+    (3.0, 'Cat 3'),
+    (3.5, 'Cat 2'),
+    (4.0, 'Cat 1'),
+    (4.5, 'Pro/Elite (TDF 입문선)'),
+    (5.5, 'TDF GC contender'),
+]
+
+
+def tdf_trajectory(current_wpk, ftp_trend=None, today_tss=None,
+                   weight_kg=None, today_iso=None,
+                   target_wpk=TDF_TARGET_WPK,
+                   target_year=TDF_PROJECT_TARGET_YEAR,
+                   start_year=TDF_PROJECT_START_YEAR):
+    """TDF 10년 trajectory 분석 — 현재 W/kg → 4.5 W/kg(TDF 입문선)까지 진척·필요 증가율.
+
+    `ftp_trend`는 athlete_db.json의 `ftp_trend` 객체 (rolling_30d 리스트 포함).
+    추세 데이터가 있으면 실제 연간 증가율(annual_increase_actual)도 산출.
+    """
+    from datetime import datetime
+    if not current_wpk or current_wpk <= 0:
+        return None
+
+    try:
+        today = datetime.fromisoformat(today_iso) if today_iso else datetime.now()
+    except Exception:
+        today = datetime.now()
+
+    years_elapsed = max(0.0, today.year - start_year + (today.month - 1) / 12)
+    years_remaining = max(0.5, target_year - today.year - (today.month - 1) / 12)
+
+    gap = max(0.0, target_wpk - current_wpk)
+    annual_needed = gap / years_remaining if years_remaining > 0 else 0.0
+
+    # 실제 연간 증가율 (rolling_30d 첫·마지막 비교 → 연환산)
+    annual_actual = None
+    rolling = (ftp_trend or {}).get('rolling_30d') or []
+    if len(rolling) >= 2:
+        try:
+            first, last = rolling[0], rolling[-1]
+            d0 = datetime.fromisoformat(first['date'])
+            d1 = datetime.fromisoformat(last['date'])
+            days = max(1, (d1 - d0).days)
+            w0 = first.get('w_per_kg', 0) or 0
+            w1 = last.get('w_per_kg', 0) or 0
+            if w0 > 0 and w1 > 0:
+                annual_actual = round((w1 - w0) * 365 / days, 3)
+        except Exception:
+            pass
+
+    # 진척도 (2.0 baseline → 4.5 target)
+    base_wpk = 2.0
+    progress_pct = round(max(0, min(100, (current_wpk - base_wpk) / (target_wpk - base_wpk) * 100)), 1)
+
+    # 다음 마일스톤
+    next_ms = None
+    for w, label in TDF_MILESTONES:
+        if w > current_wpk + 1e-6:
+            next_ms = (w, label)
+            break
+    eta_years = None
+    if next_ms and annual_actual and annual_actual > 0:
+        eta_years = round((next_ms[0] - current_wpk) / annual_actual, 1)
+
+    # 상태
+    if annual_actual is None:
+        status = '추세 데이터 누적 중 (>2 라이딩 필요)'
+    elif annual_actual <= 0:
+        status = '정체 — Build 기간 늘리고 강도 점진 상향'
+    elif annual_actual >= annual_needed:
+        status = f'on track (+{annual_actual:+.2f} W/kg/yr ≥ 필요 +{annual_needed:.2f})'
+    else:
+        deficit = annual_needed - annual_actual
+        status = f'behind (실제 +{annual_actual:.2f} < 필요 +{annual_needed:.2f}, Δ -{deficit:.2f})'
+
+    # 오늘 라이딩 기여 (CTL 1일 변화 ≈ TSS / 42, fitness 누적)
+    today_ctl_contrib = round((today_tss or 0) / 42, 2)
+
+    return {
+        'project': 'TDF 10년 프로젝트',
+        'start_year': start_year,
+        'target_year': target_year,
+        'target_wpk': target_wpk,
+        'target_label': 'Pro/Elite (TDF 입문선)',
+        'current_wpk': round(current_wpk, 2),
+        'gap_wpk': round(gap, 2),
+        'years_elapsed': round(years_elapsed, 2),
+        'years_remaining': round(years_remaining, 2),
+        'annual_increase_needed': round(annual_needed, 3),
+        'annual_increase_actual': annual_actual,
+        'on_track': annual_actual is not None and annual_actual >= annual_needed,
+        'status': status,
+        'progress_pct': progress_pct,
+        'next_milestone': {
+            'wpk': next_ms[0],
+            'label': next_ms[1],
+            'eta_years': eta_years,
+        } if next_ms else None,
+        'today_tss': today_tss,
+        'today_ctl_contrib_per_day': today_ctl_contrib,
+        'ftp_target_w': round(target_wpk * weight_kg) if weight_kg else None,
+    }
+
+
 # ───────── 메인 (CLI 검증용) ─────────
 
 def main():

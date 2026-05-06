@@ -410,13 +410,43 @@ def briefing(ride_dir):
         for r in rolling[-8:]:
             sec_ftp.append(f"| {r['date']} | {r['rolling_p20_w']:.0f}W | {r['rolling_ftp_w']:.0f}W | {r['w_per_kg']:.2f} |")
 
-    # TDF 진보 마일스톤
+    # TDF 10년 trajectory (분석에 직접 반영)
     sec_ftp.append('')
-    sec_ftp.append('### W/kg 마일스톤 (TDF 10년 프로젝트)')
+    sec_ftp.append('### TDF 10년 trajectory — 최종 기준')
+    tdf = A.get('tdf_trajectory') or {}
+    if tdf and tdf.get('current_wpk'):
+        # 진척 바 (텍스트)
+        prog = tdf.get('progress_pct', 0)
+        bar_full = 30
+        filled = int(prog / 100 * bar_full)
+        bar = '█' * filled + '░' * (bar_full - filled)
+        sec_ftp.append(f"`{bar}` **{prog}%** (2.0 → {tdf['target_wpk']} W/kg)")
+        sec_ftp.append('')
+        sec_ftp.append(f"- **현재**: {tdf['current_wpk']:.2f} W/kg · **목표**: {tdf['target_wpk']} W/kg "
+                       f"({tdf.get('target_label','')}, {tdf['target_year']}년)")
+        sec_ftp.append(f"- **남은 시간**: {tdf['years_remaining']:.1f}년 · "
+                       f"**필요 증가율**: +{tdf['annual_increase_needed']:.2f} W/kg/yr")
+        ann_act = tdf.get('annual_increase_actual')
+        if ann_act is not None:
+            sec_ftp.append(f"- **현 추세**: {ann_act:+.2f} W/kg/yr · 상태: **{tdf.get('status','')}**")
+        else:
+            sec_ftp.append(f"- 상태: {tdf.get('status','')}")
+        nm = tdf.get('next_milestone')
+        if nm:
+            eta = nm.get('eta_years')
+            eta_s = f" · 추세 ETA: **{eta}년**" if eta else ' · 추세 ETA: 추세 누적 중'
+            sec_ftp.append(f"- **다음 마일스톤**: {nm['label']} ({nm['wpk']} W/kg, Δ {nm['wpk']-tdf['current_wpk']:+.2f}){eta_s}")
+        if tdf.get('ftp_target_w'):
+            sec_ftp.append(f"- **목표 FTP** (체중 {A.get('rider',{}).get('weight_kg','?')}kg): "
+                           f"**{tdf['ftp_target_w']}W**")
+        sec_ftp.append(f"- 오늘 라이딩 기여: TSS {tdf.get('today_tss',0)} · "
+                       f"CTL +{tdf.get('today_ctl_contrib_per_day',0)}/day")
+    sec_ftp.append('')
+
+    sec_ftp.append('### W/kg 마일스톤 누적')
     if cur_wpk:
-        milestones = [(2.5, 'Cat 4-5 입문'), (3.0, 'Cat 3'), (3.5, 'Cat 2'), (4.0, 'Cat 1'),
-                      (4.5, 'Pro/Elite (TDF 입문선)'), (5.5, 'TDF GC contender')]
-        for w, label in milestones:
+        from seorak import TDF_MILESTONES as _MS
+        for w, label in _MS:
             mark = '✓' if cur_wpk >= w else '○'
             gap = '' if cur_wpk >= w else f' (Δ {w - cur_wpk:.2f})'
             sec_ftp.append(f"- {mark} **{w} W/kg** — {label}{gap}")
