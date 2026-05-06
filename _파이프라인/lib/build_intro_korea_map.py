@@ -66,9 +66,9 @@ RACE_PANEL  = {'x0': LEFT_X0, 'y0': 30 + (PANEL_H + PANEL_GAP) * 2,     'w': LEF
 
 
 def make_projector(lat_min, lat_max, lon_min, lon_max, x0, y0, w, h, pad=20):
-    """주어진 경위도 범위 → 패널 내부 좌표 (sub-image local 0,0 기준).
+    """주어진 경위도 범위 → 패널 내부 좌표 (sub-image local 좌표).
 
-    x0, y0는 메인 캔버스에 paste할 위치(반환 좌표는 sub-image 내부).
+    x0, y0는 sub-image 안에서 지도 영역 시작 위치.
     """
     asp = math.cos(math.radians((lat_min + lat_max) / 2))
     lon_r = (lon_max - lon_min) * asp
@@ -76,14 +76,95 @@ def make_projector(lat_min, lat_max, lon_min, lon_max, x0, y0, w, h, pad=20):
     if lon_r <= 0 or lat_r <= 0:
         return None
     scale = min((w - 2 * pad) / lon_r, (h - 2 * pad) / lat_r) * 0.95
-    cx = w / 2
-    cy = h / 2
+    cx = x0 + w / 2
+    cy = y0 + h / 2
 
     def project(lon, lat):
         x = cx + (lon - (lon_min + lon_max) / 2) * asp * scale
         y = cy - (lat - (lat_min + lat_max) / 2) * scale
         return (x, y)
     return project
+
+
+def draw_elevation_profile(d, x0, y0, w, h, kms, eles, climbs=None, line_color=ACCENT, fill_color=(255, 184, 76, 80)):
+    """고도 단면도 차트.
+    kms, eles: 시계열 거리(km)·고도(m) 리스트.
+    climbs: [{'start_km', 'end_km' or distance_m, 'index', 'category'}] — 음영 + 라벨
+    """
+    if not kms or not eles or len(kms) != len(eles):
+        return
+    pad_l = 50  # Y축 라벨 공간
+    pad_r = 10
+    pad_t = 25
+    pad_b = 22  # X축 라벨 공간
+    cx0 = x0 + pad_l
+    cy0 = y0 + pad_t
+    cw = w - pad_l - pad_r
+    ch = h - pad_t - pad_b
+
+    km_max = max(kms)
+    ele_min, ele_max = min(eles), max(eles)
+    if km_max <= 0 or ele_max <= ele_min:
+        return
+
+    def to_xy(km, ele):
+        x = cx0 + (km / km_max) * cw
+        y = cy0 + ch - ((ele - ele_min) / (ele_max - ele_min)) * ch
+        return (x, y)
+
+    # Y축 격자 + 고도 라벨
+    for i in range(4):
+        ele_val = ele_min + (ele_max - ele_min) * i / 3
+        y = cy0 + ch - ((ele_val - ele_min) / (ele_max - ele_min)) * ch
+        d.line([(cx0, y), (cx0 + cw, y)], fill=GRID, width=1)
+        d.text((x0 + 5, y - 6), f"{int(ele_val)}m", font=f(F_REG, 10), fill=TEXT_DIM)
+
+    # Climb 음영
+    if climbs:
+        for c in climbs:
+            start_km = c.get('start_km')
+            if start_km is None:
+                continue
+            end_km = c.get('end_km')
+            if end_km is None:
+                end_km = start_km + (c.get('distance_m', 0) or 0) / 1000
+            x1 = cx0 + (start_km / km_max) * cw
+            x2 = cx0 + (end_km / km_max) * cw
+            # 반투명 빨강
+            overlay = Image.new('RGBA', (max(1, int(x2 - x1)), int(ch)), (255, 107, 107, 50))
+            # 직접 그리기 어려우니 그냥 outline + light fill
+            d.rectangle([x1, cy0, x2, cy0 + ch], fill=(60, 35, 50), outline=None)
+
+    # 고도 단면 polygon (fill)
+    pts = [to_xy(km, ele) for km, ele in zip(kms, eles)]
+    fill_pts = pts + [(pts[-1][0], cy0 + ch), (pts[0][0], cy0 + ch)]
+    d.polygon(fill_pts, fill=fill_color[:3])
+    # 라인
+    d.line(pts, fill=line_color, width=2)
+
+    # X축 km 라벨
+    n_labels = 5
+    for i in range(n_labels + 1):
+        km_val = km_max * i / n_labels
+        x = cx0 + (km_val / km_max) * cw
+        d.text((x - 12, cy0 + ch + 4), f"{int(km_val)}km", font=f(F_REG, 10), fill=TEXT_DIM)
+
+    # Climb 인덱스/카테고리 라벨 (위쪽)
+    if climbs:
+        for c in climbs:
+            start_km = c.get('start_km')
+            if start_km is None:
+                continue
+            x = cx0 + (start_km / km_max) * cw
+            idx = c.get('index', '?')
+            cat = c.get('category', '')
+            label = cat if cat and cat != 'NC' else f"#{idx}"
+            d.text((x - 10, cy0 + 2), label, font=f(F_BOLD, 10), fill=ACCENT3)
+
+    # 차트 외곽 박스
+    d.rectangle([cx0, cy0, cx0 + cw, cy0 + ch], outline=(50, 65, 95), width=1)
+    # "고도 프로파일" 라벨
+    d.text((cx0, y0 + 3), "고도 프로파일 (Elevation)", font=f(F_BOLD, 12), fill=TEXT_SUB)
 
 
 def render_map_panel(panel, render_fn):
@@ -136,19 +217,21 @@ def clip_in_panel(pts, panel):
 
 
 def extract_gps_from_fit(ride_dir):
-    """라이딩 폴더의 .fit에서 GPS 트랙 + 거리 추출."""
+    """라이딩 폴더의 .fit에서 GPS·거리·고도 추출. (lat, lon, dist_m, ele_m)"""
     from fitparse import FitFile
     fits = list(Path(ride_dir).glob('*.fit')) + list(Path(ride_dir).glob('*.FIT'))
     if not fits:
-        return [], []
+        return []
     fit = FitFile(str(fits[0]))
-    pts = []  # (lat, lon, dist_m)
+    pts = []
     for r in fit.get_messages('record'):
         d = {f.name: f.value for f in r}
         lat, lon = d.get('position_lat'), d.get('position_long')
         if lat is None or lon is None:
             continue
-        pts.append((lat * (180.0 / 2**31), lon * (180.0 / 2**31), d.get('distance', 0)))
+        ele = d.get('altitude') if d.get('altitude') is not None else d.get('enhanced_altitude')
+        pts.append((lat * (180.0 / 2**31), lon * (180.0 / 2**31),
+                    d.get('distance', 0), ele or 0))
     return pts
 
 
@@ -156,7 +239,8 @@ def find_climb_gps(records, target_d_m):
     """주어진 거리(미터)에 가장 가까운 GPS 좌표 찾기."""
     best = None
     best_diff = float('inf')
-    for lat, lon, d in records:
+    for rec in records:
+        lat, lon, d = rec[0], rec[1], rec[2]
         if d is None:
             continue
         diff = abs(d - target_d_m)
@@ -198,6 +282,8 @@ def main():
     today_records = extract_gps_from_fit(ride_dir)
     today_lats = [p[0] for p in today_records]
     today_lons = [p[1] for p in today_records]
+    today_kms = [p[2] / 1000 for p in today_records if p[2] is not None]
+    today_eles = [p[3] for p in today_records if p[2] is not None and p[3] is not None]
 
     # Natural Earth shapefile
     NE_DIR = SCRIPT_DIR.parent / 'intro_video' / 'ne_data'
@@ -266,37 +352,60 @@ def main():
     korea_sub = render_map_panel(KOREA_PANEL, render_korea)
     img.paste(korea_sub, (KOREA_PANEL['x0'], KOREA_PANEL['y0']))
 
-    # ─────────────────── 좌중: TODAY 줌인 ───────────────────
+    # ─────────────────── 좌중: TODAY (좌:고도프로파일 + 우:지도) ───────────────────
     def render_today(sub, sub_d):
         if not today_lats:
             sub_d.text((20, 20), "GPS 데이터 없음", font=f(F_REG, 18), fill=TEXT_DIM)
             return
+
+        # ── 좌측 절반: 고도 프로파일 (별도 sub) ──
+        chart_w = TODAY_PANEL['w'] // 2 - 20
+        chart_h = TODAY_PANEL['h'] - 60
+        chart_sub = Image.new('RGB', (chart_w, chart_h), (15, 22, 36))
+        chart_d = ImageDraw.Draw(chart_sub)
+        if today_kms and today_eles:
+            draw_elevation_profile(chart_d, 0, 0, chart_w, chart_h,
+                                   today_kms, today_eles, climbs)
+        sub.paste(chart_sub, (10, 32))
+
+        # ── 우측 절반: 지도 (별도 sub) ──
+        map_x = TODAY_PANEL['w'] // 2 + 10
+        map_w = TODAY_PANEL['w'] - map_x - 10
+        map_h = TODAY_PANEL['h'] - 60
+        map_sub = Image.new('RGB', (map_w, map_h), SEA)
+        map_d = ImageDraw.Draw(map_sub)
+
         lat_pad = (max(today_lats) - min(today_lats)) * 0.15 + 0.005
         lon_pad = (max(today_lons) - min(today_lons)) * 0.15 + 0.005
         pj = make_projector(min(today_lats) - lat_pad, max(today_lats) + lat_pad,
                             min(today_lons) - lon_pad, max(today_lons) + lon_pad,
-                            0, 0, TODAY_PANEL['w'], TODAY_PANEL['h'])
+                            0, 0, map_w, map_h)
         # 한국 outline 배경
-        draw_country_in_panel(sub_d, gdf, country_kr, pj, KOREA_HL, COASTLINE, 1, name_col)
+        # 격자 (map_sub)
+        for x in range(0, map_w, 60):
+            map_d.line([(x, 0), (x, map_h)], fill=GRID, width=1)
+        for y in range(0, map_h, 60):
+            map_d.line([(0, y), (map_w, y)], fill=GRID, width=1)
+        draw_country_in_panel(map_d, gdf, country_kr, pj, KOREA_HL, COASTLINE, 1, name_col)
 
         # GPS 트랙 + 글로우
         track_pts = [pj(lo, la) for la, lo in zip(today_lats, today_lons)]
-        glow = Image.new('RGBA', (TODAY_PANEL['w'], TODAY_PANEL['h']), (0, 0, 0, 0))
+        glow = Image.new('RGBA', (map_w, map_h), (0, 0, 0, 0))
         gd = ImageDraw.Draw(glow)
-        gd.line(track_pts, fill=ACCENT + (220,), width=10)
-        glow = glow.filter(ImageFilter.GaussianBlur(5))
-        sub_rgba = sub.convert('RGBA')
-        sub_rgba.alpha_composite(glow)
-        sub.paste(sub_rgba.convert('RGB'))
-        sub_d2 = ImageDraw.Draw(sub)
-        sub_d2.line(track_pts, fill=ACCENT, width=4)
+        gd.line(track_pts, fill=ACCENT + (220,), width=8)
+        glow = glow.filter(ImageFilter.GaussianBlur(4))
+        map_rgba = map_sub.convert('RGBA')
+        map_rgba.alpha_composite(glow)
+        map_sub.paste(map_rgba.convert('RGB'))
+        map_d2 = ImageDraw.Draw(map_sub)
+        map_d2.line(track_pts, fill=ACCENT, width=3)
 
         # Start/End
-        sub_d2.ellipse([track_pts[0][0] - 9, track_pts[0][1] - 9,
-                        track_pts[0][0] + 9, track_pts[0][1] + 9],
+        map_d2.ellipse([track_pts[0][0] - 8, track_pts[0][1] - 8,
+                        track_pts[0][0] + 8, track_pts[0][1] + 8],
                        fill=ACCENT2, outline=TEXT_MAIN, width=2)
-        sub_d2.ellipse([track_pts[-1][0] - 9, track_pts[-1][1] - 9,
-                        track_pts[-1][0] + 9, track_pts[-1][1] + 9],
+        map_d2.ellipse([track_pts[-1][0] - 8, track_pts[-1][1] - 8,
+                        track_pts[-1][0] + 8, track_pts[-1][1] + 8],
                        fill=ACCENT3, outline=TEXT_MAIN, width=2)
 
         # Climb 마커
@@ -306,12 +415,15 @@ def main():
             if not gp:
                 continue
             cx, cy = pj(gp[1], gp[0])
-            if not (0 <= cx <= TODAY_PANEL['w'] and 0 <= cy <= TODAY_PANEL['h']):
+            if not (0 <= cx <= map_w and 0 <= cy <= map_h):
                 continue
-            diamond = [(cx, cy - 9), (cx + 9, cy), (cx, cy + 9), (cx - 9, cy)]
-            sub_d2.polygon(diamond, fill=ACCENT3, outline=TEXT_MAIN)
-            sub_d2.text((cx + 12, cy - 9), f"#{c.get('index', '?')}",
-                        font=f(F_BOLD, 14), fill=ACCENT3)
+            diamond = [(cx, cy - 7), (cx + 7, cy), (cx, cy + 7), (cx - 7, cy)]
+            map_d2.polygon(diamond, fill=ACCENT3, outline=TEXT_MAIN)
+            map_d2.text((cx + 10, cy - 8), f"#{c.get('index', '?')}",
+                        font=f(F_BOLD, 12), fill=ACCENT3)
+
+        sub.paste(map_sub, (map_x, 32))
+        sub_d2 = ImageDraw.Draw(sub)
 
         # 라벨 (배경 박스 위에 그리기 위해 마지막에)
         sub_d2.rectangle([0, 0, TODAY_PANEL['w'], 30], fill=(15, 22, 36, 200))
@@ -331,33 +443,57 @@ def main():
     today_sub = render_map_panel(TODAY_PANEL, render_today)
     img.paste(today_sub, (TODAY_PANEL['x0'], TODAY_PANEL['y0']))
 
-    # ─────────────────── 좌하: A-RACE Seorak GF ───────────────────
+    # ─────────────────── 좌하: A-RACE (좌:고도프로파일 + 우:코스 지도) ───────────────────
     def render_race(sub, sub_d):
         if not (seorak_course and seorak_course.get('trkpts')):
             sub_d.text((20, 100), "Seorak GPX 파일이 데이터 폴더에 없음",
                        font=f(F_REG, 18), fill=TEXT_DIM)
             return
+
+        # ── 좌측 절반: 고도 프로파일 ──
+        race_kms = [p['km'] for p in seorak_course['trkpts']]
+        race_eles = [p.get('ele', 0) for p in seorak_course['trkpts']]
+        chart_w = RACE_PANEL['w'] // 2 - 20
+        chart_h = RACE_PANEL['h'] - 60
+        chart_sub = Image.new('RGB', (chart_w, chart_h), (15, 22, 36))
+        chart_d = ImageDraw.Draw(chart_sub)
+        draw_elevation_profile(chart_d, 0, 0, chart_w, chart_h,
+                               race_kms, race_eles, seorak_course.get('climbs', []),
+                               line_color=ACCENT2, fill_color=(102, 222, 178, 80))
+        sub.paste(chart_sub, (10, 32))
+
+        # ── 우측 절반: 코스 지도 ──
+        map_x = RACE_PANEL['w'] // 2 + 10
+        map_w = RACE_PANEL['w'] - map_x - 10
+        map_h = RACE_PANEL['h'] - 60
+        map_sub = Image.new('RGB', (map_w, map_h), SEA)
+        map_d = ImageDraw.Draw(map_sub)
+        for x in range(0, map_w, 60):
+            map_d.line([(x, 0), (x, map_h)], fill=GRID, width=1)
+        for y in range(0, map_h, 60):
+            map_d.line([(0, y), (map_w, y)], fill=GRID, width=1)
+
         s_lats_l = [p['lat'] for p in seorak_course['trkpts']]
         s_lons_l = [p['lon'] for p in seorak_course['trkpts']]
         s_lat_pad = (max(s_lats_l) - min(s_lats_l)) * 0.15 + 0.005
         s_lon_pad = (max(s_lons_l) - min(s_lons_l)) * 0.15 + 0.005
         pj = make_projector(min(s_lats_l) - s_lat_pad, max(s_lats_l) + s_lat_pad,
                             min(s_lons_l) - s_lon_pad, max(s_lons_l) + s_lon_pad,
-                            0, 0, RACE_PANEL['w'], RACE_PANEL['h'])
+                            0, 0, map_w, map_h)
 
-        draw_country_in_panel(sub_d, gdf, country_kr, pj, KOREA_HL, COASTLINE, 1, name_col)
+        draw_country_in_panel(map_d, gdf, country_kr, pj, KOREA_HL, COASTLINE, 1, name_col)
 
         # 코스 트랙 + 글로우
         track_pts = [pj(p['lon'], p['lat']) for p in seorak_course['trkpts']]
-        glow = Image.new('RGBA', (RACE_PANEL['w'], RACE_PANEL['h']), (0, 0, 0, 0))
+        glow = Image.new('RGBA', (map_w, map_h), (0, 0, 0, 0))
         gd = ImageDraw.Draw(glow)
-        gd.line(track_pts, fill=ACCENT2 + (220,), width=10)
-        glow = glow.filter(ImageFilter.GaussianBlur(5))
-        sub_rgba = sub.convert('RGBA')
-        sub_rgba.alpha_composite(glow)
-        sub.paste(sub_rgba.convert('RGB'))
-        sub_d2 = ImageDraw.Draw(sub)
-        sub_d2.line(track_pts, fill=ACCENT2, width=4)
+        gd.line(track_pts, fill=ACCENT2 + (220,), width=8)
+        glow = glow.filter(ImageFilter.GaussianBlur(4))
+        map_rgba = map_sub.convert('RGBA')
+        map_rgba.alpha_composite(glow)
+        map_sub.paste(map_rgba.convert('RGB'))
+        map_d2 = ImageDraw.Draw(map_sub)
+        map_d2.line(track_pts, fill=ACCENT2, width=3)
 
         # Waypoints
         for w in seorak_course.get('waypoints', []):
@@ -365,19 +501,19 @@ def main():
             if lat is None or lon is None:
                 continue
             wx, wy = pj(lon, lat)
-            if not (0 <= wx <= RACE_PANEL['w'] and 0 <= wy <= RACE_PANEL['h']):
+            if not (0 <= wx <= map_w and 0 <= wy <= map_h):
                 continue
             name = w.get('name', '')
             if 'START' in name.upper():
-                sub_d2.ellipse([wx - 9, wy - 9, wx + 9, wy + 9], fill=ACCENT2, outline=TEXT_MAIN, width=2)
-                sub_d2.text((wx + 12, wy - 7), 'START', font=f(F_BOLD, 12), fill=ACCENT2)
+                map_d2.ellipse([wx - 8, wy - 8, wx + 8, wy + 8], fill=ACCENT2, outline=TEXT_MAIN, width=2)
+                map_d2.text((wx + 11, wy - 6), 'START', font=f(F_BOLD, 11), fill=ACCENT2)
             elif 'FINISH' in name.upper():
-                sub_d2.ellipse([wx - 9, wy - 9, wx + 9, wy + 9], fill=ACCENT3, outline=TEXT_MAIN, width=2)
-                sub_d2.text((wx + 12, wy - 7), 'FINISH', font=f(F_BOLD, 12), fill=ACCENT3)
+                map_d2.ellipse([wx - 8, wy - 8, wx + 8, wy + 8], fill=ACCENT3, outline=TEXT_MAIN, width=2)
+                map_d2.text((wx + 11, wy - 6), 'FINISH', font=f(F_BOLD, 11), fill=ACCENT3)
             elif 'cut' in name.lower() or 'CUT' in name:
-                sub_d2.ellipse([wx - 6, wy - 6, wx + 6, wy + 6], fill=ACCENT, outline=TEXT_MAIN, width=1)
+                map_d2.ellipse([wx - 5, wy - 5, wx + 5, wy + 5], fill=ACCENT, outline=TEXT_MAIN, width=1)
                 km = w.get('km', 0)
-                sub_d2.text((wx + 9, wy - 7), f'CUT {km:.0f}km', font=f(F_BOLD, 11), fill=ACCENT)
+                map_d2.text((wx + 8, wy - 6), f'CUT {km:.0f}km', font=f(F_BOLD, 10), fill=ACCENT)
 
         # Major climbs (HC/Cat1/Cat2)
         for c in seorak_course.get('climbs', []):
@@ -393,10 +529,13 @@ def main():
                         best = (p['lat'], p['lon'])
                 if best:
                     cx, cy = pj(best[1], best[0])
-                    if 0 <= cx <= RACE_PANEL['w'] and 0 <= cy <= RACE_PANEL['h']:
-                        diamond = [(cx, cy - 8), (cx + 8, cy), (cx, cy + 8), (cx - 8, cy)]
-                        sub_d2.polygon(diamond, fill=ACCENT3, outline=TEXT_MAIN)
-                        sub_d2.text((cx + 11, cy - 8), cat, font=f(F_BOLD, 11), fill=ACCENT3)
+                    if 0 <= cx <= map_w and 0 <= cy <= map_h:
+                        diamond = [(cx, cy - 7), (cx + 7, cy), (cx, cy + 7), (cx - 7, cy)]
+                        map_d2.polygon(diamond, fill=ACCENT3, outline=TEXT_MAIN)
+                        map_d2.text((cx + 9, cy - 7), cat, font=f(F_BOLD, 10), fill=ACCENT3)
+
+        sub.paste(map_sub, (map_x, 32))
+        sub_d2 = ImageDraw.Draw(sub)
 
         # 라벨
         sub_d2.rectangle([0, 0, RACE_PANEL['w'], 30], fill=(15, 22, 36, 200))
