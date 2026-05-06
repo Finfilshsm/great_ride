@@ -92,9 +92,15 @@ def load_ride(ride_dir):
 
 # ───────── CTL/ATL/TSB (Training Stress Balance) ─────────
 def compute_pmc(rides, today=None):
-    """Performance Management Chart — CTL(42d EWMA), ATL(7d EWMA), TSB(CTL-ATL).
+    """Performance Management Chart — CTL(42d EWMA), ATL(7d EWMA), TSB(CTL-ATL), ACWR.
 
-    Returns: list of {date, ctl, atl, tsb, tss}
+    ACWR (Acute:Chronic Workload Ratio) — 부상 위험 예측:
+      - acute = 7일 누적 TSS
+      - chronic = 28일 평균 일일 TSS × 7
+      - ratio = acute / chronic
+      - 0.8~1.3 = sweet spot, 1.5+ = 부상 위험, <0.8 = detrain
+
+    Returns: list of {date, tss, ctl, atl, tsb, acwr, acwr_state}
     """
     if not rides:
         return []
@@ -118,18 +124,39 @@ def compute_pmc(rides, today=None):
 
     ctl, atl = 0.0, 0.0
     out = []
+    daily_tss = []  # 시간순 일별 TSS (ACWR 계산용)
     cur = start
     while cur <= end:
         date_str = cur.strftime('%Y-%m-%d')
         tss = by_date.get(date_str, 0)
+        daily_tss.append(tss)
         ctl = ewma(a_ctl, ctl, tss)
         atl = ewma(a_atl, atl, tss)
+
+        # ACWR
+        acute = sum(daily_tss[-7:])
+        chronic_28d = daily_tss[-28:] if len(daily_tss) >= 28 else daily_tss
+        chronic = sum(chronic_28d) / len(chronic_28d) * 7 if chronic_28d else 0
+        acwr = round(acute / chronic, 2) if chronic > 0 else 0
+        if acwr == 0:
+            state = 'no_data'
+        elif acwr < 0.8:
+            state = 'detrain'
+        elif acwr <= 1.3:
+            state = 'safe'
+        elif acwr <= 1.5:
+            state = 'caution'
+        else:
+            state = 'injury_risk'
+
         out.append({
             'date': date_str,
             'tss': tss,
             'ctl': round(ctl, 1),
             'atl': round(atl, 1),
             'tsb': round(ctl - atl, 1),
+            'acwr': acwr,
+            'acwr_state': state,
         })
         cur += timedelta(days=1)
     return out
@@ -249,6 +276,75 @@ def seorak_readiness(rides, race=A_RACE):
     }
 
 
+# ───────── FTP 추정 / W/kg trend ─────────
+def ftp_trend(rides, weight_kg, manual_ftp=None):
+    """라이딩별 20분 베스트 × 0.95 = FTP 추정.
+
+    실제 FTP 측정 없이도 라이딩 데이터로 자동 추정.
+    - per_ride: 각 라이딩의 추정 FTP (라이딩 길이 ≥1h, 20분 베스트 ≥80W일 때만)
+    - rolling_30d: 지난 30일의 best 20분 × 0.95 (단일 측정 노이즈 완화)
+    - manual_ftp: rider_profile.json 의 수동 입력값 (있으면 비교용으로 함께 표시)
+
+    Returns: {per_ride: [...], rolling: [...], current_estimated_ftp, current_w_per_kg}
+    """
+    per_ride = []
+    for r in rides:
+        date = r.get('date')
+        if not date:
+            continue
+        a = r.get('analysis', {}) or {}
+        mmp = a.get('mean_max_power') or {}
+        p20 = mmp.get('1200s')
+        if p20 is None or p20 < 80:
+            continue
+        # 1시간 미만 라이딩이면 신뢰도 낮음 — 제외
+        h_str = a.get('summary', {}).get('moving_h', '0:0:0')
+        try:
+            h, m, s = h_str.split(':')
+            moving_h = int(h) + int(m)/60 + int(s)/3600
+        except Exception:
+            moving_h = 0
+        if moving_h < 1:
+            continue
+        est_ftp = round(p20 * 0.95, 1)
+        per_ride.append({
+            'date': date,
+            'p20_w': p20,
+            'estimated_ftp_w': est_ftp,
+            'w_per_kg': round(est_ftp / weight_kg, 2) if weight_kg else None,
+        })
+
+    # 30일 rolling (각 라이딩 시점의 지난 30일 최대값 기반)
+    rolling = []
+    for i, r in enumerate(per_ride):
+        cur_date = datetime.fromisoformat(r['date']).date()
+        cutoff = cur_date - timedelta(days=30)
+        recent = [pr for pr in per_ride[:i+1]
+                  if datetime.fromisoformat(pr['date']).date() >= cutoff]
+        if not recent:
+            continue
+        peak_p20 = max(pr['p20_w'] for pr in recent)
+        ftp_est = round(peak_p20 * 0.95, 1)
+        rolling.append({
+            'date': r['date'],
+            'rolling_p20_w': peak_p20,
+            'rolling_ftp_w': ftp_est,
+            'w_per_kg': round(ftp_est / weight_kg, 2) if weight_kg else None,
+        })
+
+    current_est = rolling[-1]['rolling_ftp_w'] if rolling else None
+    current_wpk = rolling[-1]['w_per_kg'] if rolling else None
+
+    return {
+        'per_ride': per_ride,
+        'rolling_30d': rolling,
+        'manual_ftp_w': manual_ftp,
+        'current_estimated_ftp_w': current_est,
+        'current_estimated_w_per_kg': current_wpk,
+        'manual_vs_estimated_delta': round(current_est - manual_ftp, 1) if (current_est and manual_ftp) else None,
+    }
+
+
 # ───────── 영양 효율 추적 ─────────
 def nutrition_efficiency(rides):
     """ride_meta.json의 영양 메모(있으면) + 디커플링 결과 매칭."""
@@ -306,6 +402,7 @@ def build_db(base_dir, today=None):
         'climb_records': climb_records(rides),
         'seorak_readiness': seorak_readiness(rides),
         'nutrition_log': nutrition_efficiency(rides),
+        'ftp_trend': ftp_trend(rides, RIDER['weight_kg'], manual_ftp=RIDER['ftp_w']),
     }
     return db
 
@@ -339,6 +436,15 @@ def main():
     print(f"    PMC days: {len(db['pmc'])}일")
     print(f"    climb records: {len(db['climb_records'])}개 코스")
     print(f"    seorak readiness: {db['seorak_readiness']['overall_pct']}%")
+    ft = db.get('ftp_trend') or {}
+    if ft.get('current_estimated_ftp_w'):
+        delta = ft.get('manual_vs_estimated_delta', 0) or 0
+        sign = '+' if delta > 0 else ''
+        print(f"    FTP 추정: {ft['current_estimated_ftp_w']}W ({ft['current_estimated_w_per_kg']} W/kg) "
+              f"vs 수동 {ft['manual_ftp_w']}W ({sign}{delta}W)")
+    if db.get('pmc'):
+        latest = db['pmc'][-1]
+        print(f"    오늘 ACWR: {latest['acwr']} [{latest['acwr_state']}] · TSB {latest['tsb']:+.1f}")
     print()
     print("  최근 라이딩 5개:")
     for r in db['rides'][-5:]:
