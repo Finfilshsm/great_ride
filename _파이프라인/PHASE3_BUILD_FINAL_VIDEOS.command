@@ -46,8 +46,9 @@ echo ""
 echo "[A3] 진행도 카드 (journey · load · readiness)..."
 python3 "$LIB_DIR/build_progress_cards.py" "$RIDE_DIR"
 echo ""
-echo "[A4] 한국 지도 인트로 + GPS 트랙..."
+echo "[A4] 한국 지도 인트로 (참고용) + TDF 애니메이션 인트로 (메인)..."
 python3 "$LIB_DIR/build_intro_korea_map.py" "$RIDE_DIR"
+python3 "$LIB_DIR/build_intro_tdf_animated.py" "$RIDE_DIR"
 echo ""
 echo "[A5] 다각적 브리핑 마크다운..."
 (cd "$LIB_DIR" && python3 build_athlete_briefing.py "$RIDE_DIR")
@@ -103,9 +104,9 @@ png_to_mp4() {
 }
 
 echo "[C] 카드/아웃트로 mp4 변환..."
-# 인트로(한국지도) → 라이딩 데이터 → 설악 준비도 → CTL/ATL/TSB → 주간부하 → 용어 → 코스 → climb → 분석 → 결론 → 액션 → 아웃트로
+# 인트로는 TDF 애니메이션 mp4를 별도로 재인코딩 (CARD_LIST에서는 제외)
+# 라이딩 데이터 → 설악 준비도 → CTL/ATL/TSB → 주간부하 → 용어 → 코스 → climb → 분석 → 결론 → 액션 → 아웃트로
 declare -a CARD_LIST=(
-  "card_intro_korea.png|10|00_intro_korea.mp4"
   "card1_overview.png|8|01_intro_overview.mp4"
   "card_seorak_readiness.png|10|02a_seorak_readiness.mp4"
   "card_athlete_journey.png|8|02b_athlete_journey.mp4"
@@ -134,7 +135,26 @@ for entry in "${CARD_LIST[@]}"; do
 done
 printf "  → %-30s (%2ss)\n" "14_outro.mp4" "8"
 png_to_mp4 "$OUTRO_PNG" "8" "$WORK_DIR/14_outro.mp4"
-echo "  ✓ ${#CARD_LIST[@]}+1 카드 변환: $(($(date +%s)-START))초"
+
+# TDF 애니메이션 인트로 — 코덱·오디오 트랙 정규화 (concat 호환)
+TDF_INTRO_SRC="$RIDE_DIR/output_videos/_cards/card_intro_tdf_animated.mp4"
+TDF_INTRO_OUT="$WORK_DIR/00_intro_tdf.mp4"
+if [ -f "$TDF_INTRO_SRC" ]; then
+  printf "  → %-30s (TDF 애니, ~8s)\n" "00_intro_tdf.mp4"
+  caffeinate -i "$FFMPEG" -y -hide_banner -loglevel error \
+    -i "$TDF_INTRO_SRC" \
+    -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 \
+    -vf "format=yuv420p,fade=t=in:st=0:d=0.4,fade=t=out:st=7.5:d=0.5" \
+    -c:v hevc_videotoolbox -q:v 50 -tag:v hvc1 -r 30000/1001 \
+    -c:a aac -b:a 192k -ar 48000 -shortest \
+    -video_track_timescale 30000 \
+    -movflags +faststart \
+    "$TDF_INTRO_OUT"
+else
+  echo "  ✗ TDF 애니메이션 인트로 누락: $TDF_INTRO_SRC"
+  exit 1
+fi
+echo "  ✓ ${#CARD_LIST[@]}+1+1 카드 변환: $(($(date +%s)-START))초"
 echo ""
 
 # ----- [D] 클라임 영상 발췌 시각 자동 계산 -----
@@ -206,7 +226,7 @@ echo ""
 echo "[F] 15개 클립 concat (한국 인트로 → 라이딩 → 누적 분석 → 클라임 → 결론 → 아웃트로)..."
 CONCAT_LIST="$WORK_DIR/_concat_highlight.txt"
 {
-  for f in 00_intro_korea 01_intro_overview 02a_seorak_readiness 02b_athlete_journey 02c_weekly_load \
+  for f in 00_intro_tdf 01_intro_overview 02a_seorak_readiness 02b_athlete_journey 02c_weekly_load \
            03_glossary 04_course_profile 05_course_climbs \
            06_best_intro 07_best_excerpt 08_transition 09_fade_intro 10_fade_excerpt \
            11_analysis 12_conclusion 13_action 14_outro; do
@@ -251,7 +271,7 @@ echo ""
 echo "[H] 본편 + 한국 지도 인트로 + 아웃트로 결합..."
 FULL_CONCAT="$WORK_DIR/_concat_full.txt"
 {
-  echo "file '$WORK_DIR/00_intro_korea.mp4'"
+  echo "file '$WORK_DIR/00_intro_tdf.mp4'"
   echo "file '$MAIN_VIDEO'"
   echo "file '$WORK_DIR/14_outro.mp4'"
 } > "$FULL_CONCAT"
