@@ -279,46 +279,95 @@ def main():
     d.text((MAP_X0 + 95, MAP_Y0 - 32), "Source: Natural Earth · GPS: Garmin .fit",
            font=f(F_REG, 11), fill=TEXT_DIM)
 
-    # ───── 우측 패널 ─────
+    # ───── 우측 패널 — 3계층 시간 비전 ─────
     PX = 1280
     course_name = M.get('코스명', '') or ride_dir.name.split()[-1]
 
-    d.text((PX, 80), "ULTIMATE GOAL", font=f(F_REG, 22), fill=TEXT_DIM)
-    d.text((PX, 110), "SEORAK GRANFONDO", font=f(F_EX, 48), fill=ACCENT)
-    d.text((PX, 165), "208km · +3,800m · 2026.06.20", font=f(F_REG, 22), fill=TEXT_SUB)
-    d.rectangle([PX, 200, PX + 500, 204], fill=ACCENT)
+    # athlete_db에서 W/kg 가져오기 (TDF 마일스톤 진척도 계산용)
+    base_dir = ride_dir.parent
+    db_path = base_dir / 'athlete_db.json'
+    cur_wpk = R.get('w_per_kg', 2.47)
+    if db_path.exists():
+        try:
+            db = json.loads(db_path.read_text(encoding='utf-8'))
+            ft = db.get('ftp_trend') or {}
+            if ft.get('current_estimated_w_per_kg'):
+                cur_wpk = ft['current_estimated_w_per_kg']
+        except Exception:
+            pass
+
+    # ─ 계층 1: LONG-TERM — TDF 10년 프로젝트 (Y=60~270) ─
+    d.text((PX, 60), "LONG-TERM · 10년 비전", font=f(F_REG, 18), fill=TEXT_DIM)
+    d.text((PX, 88), "TOUR DE FRANCE", font=f(F_EX, 40), fill=ACCENT)
+    d.rectangle([PX, 138, PX + 460, 142], fill=ACCENT)
+
+    # W/kg 마일스톤 진척도 (현재 위치 표시)
+    milestones = [
+        (2.5, 'Cat 4-5'),
+        (3.0, 'Cat 3'),
+        (3.5, 'Cat 2'),
+        (4.0, 'Cat 1'),
+        (4.5, 'Pro/TDF'),
+        (5.5, 'GC'),
+    ]
+    bar_x0, bar_x1 = PX, PX + 460
+    bar_y = 175
+    bar_h = 6
+    # 배경 바
+    d.rectangle([bar_x0, bar_y, bar_x1, bar_y + bar_h], fill=(40, 55, 80))
+    # 진척 바 (현재 W/kg 위치까지)
+    progress_pct = min(1.0, (cur_wpk - 2.0) / (5.5 - 2.0))
+    if progress_pct > 0:
+        d.rectangle([bar_x0, bar_y, bar_x0 + int((bar_x1 - bar_x0) * progress_pct), bar_y + bar_h], fill=ACCENT)
+    # 마일스톤 점·라벨
+    for w, label in milestones:
+        ratio = (w - 2.0) / (5.5 - 2.0)
+        x = bar_x0 + int((bar_x1 - bar_x0) * ratio)
+        achieved = cur_wpk >= w
+        col = ACCENT if achieved else TEXT_DIM
+        d.ellipse([x - 5, bar_y - 4, x + 5, bar_y + bar_h + 4], fill=col, outline=TEXT_MAIN if achieved else None, width=1)
+        d.text((x - 18, bar_y + bar_h + 6), f"{w}", font=f(F_REG, 11), fill=col)
+        d.text((x - 22, bar_y + bar_h + 22), label, font=f(F_REG, 10), fill=col)
+    # 현재 위치 강조
+    cur_x = bar_x0 + int((bar_x1 - bar_x0) * progress_pct)
+    d.text((cur_x - 30, bar_y - 26), f"NOW {cur_wpk:.2f}W/kg", font=f(F_BOLD, 14), fill=ACCENT3)
+    d.polygon([(cur_x, bar_y - 6), (cur_x - 6, bar_y - 12), (cur_x + 6, bar_y - 12)], fill=ACCENT3)
+
+    # ─ 계층 2: THIS YEAR — Seorak GF (Y=270~470) ─
+    d.text((PX, 270), "THIS YEAR · 2026 시즌 A-race", font=f(F_REG, 18), fill=TEXT_DIM)
+    d.text((PX, 298), "SEORAK GRANFONDO", font=f(F_EX, 36), fill=ACCENT2)
+    d.text((PX, 348), "208km · +3,800m · 2026.06.20", font=f(F_REG, 20), fill=TEXT_SUB)
+    d.rectangle([PX, 380, PX + 200, 384], fill=ACCENT2)
 
     # D-day 카운트
     days = days_until('2026-06-20')
     if days >= 0:
-        d.text((PX, 220), f"D-{days}", font=f(F_EX, 56), fill=ACCENT3)
-        d.text((PX + 180, 240), f"남은 일수", font=f(F_REG, 24), fill=TEXT_SUB)
+        d.text((PX, 395), f"D-{days}", font=f(F_EX, 60), fill=ACCENT3)
+        d.text((PX + 200, 420), "남은 일수", font=f(F_REG, 22), fill=TEXT_SUB)
+        # 컷오프 정보
+        d.text((PX + 200, 450), f"컷오프: 12:00@82km / 15:40@167km", font=f(F_REG, 16), fill=TEXT_DIM)
 
-    # 채널 브랜딩
-    d.text((PX, 320), "그란폰도 코칭", font=f(F_EX, 56), fill=TEXT_MAIN)
-    d.text((PX, 395), "Data Ride", font=f(F_EX, 80), fill=ACCENT)
-    d.rectangle([PX, 500, PX + 200, 504], fill=ACCENT2)
-    d.text((PX, 525), "Big Ride", font=f(F_EX, 64), fill=ACCENT2)
-
-    d.text((PX, 615), "데이터로 보는 라이딩의 모든 것", font=f(F_REG, 28), fill=TEXT_SUB)
-    d.text((PX, 655), "Power · HR · Pacing · Nutrition · Recovery", font=f(F_REG, 20), fill=TEXT_DIM)
+    # ─ 계층 3: TODAY — 오늘의 라이딩 (Y=510~970) ─
+    d.text((PX, 510), "TODAY · 오늘의 라이딩", font=f(F_REG, 18), fill=TEXT_DIM)
+    d.text((PX, 540), course_name, font=f(F_EX, 44), fill=TEXT_MAIN)
+    d.rectangle([PX, 595, PX + 460, 598], fill=TEXT_MAIN)
 
     # 오늘의 라이딩 정보 박스
-    INFO_Y = 740
-    d.rounded_rectangle([PX, INFO_Y, PX + 500, INFO_Y + 270], radius=12,
+    INFO_Y = 615
+    d.rounded_rectangle([PX, INFO_Y, PX + 460, INFO_Y + 350], radius=12,
                         fill=(20, 28, 44), outline=(40, 55, 80), width=2)
-    d.text((PX + 25, INFO_Y + 20), f"오늘의 라이딩 — {course_name}",
-           font=f(F_BOLD, 22), fill=ACCENT)
     specs = [
         ('거리 / 상승',  f"{s.get('distance_km', 0)} km · +{s.get('elev_gain_m', 0):,}m"),
-        ('주행 시간',    f"{s.get('moving_h', '?')} (평균 {s.get('avg_speed_kmh', 0)} km/h)"),
+        ('주행 시간',    f"{s.get('moving_h', '?')}"),
+        ('평균 속도',    f"{s.get('avg_speed_kmh', 0)} km/h"),
         ('TSS · IF',    f"{s.get('tss', 0)} · {s.get('if_', 0)}"),
         ('Avg / NP',    f"{s.get('avg_power_w', 0)}W / {s.get('np_w', 0)}W"),
+        ('평균 HR',      f"{s.get('avg_hr', 0)} bpm"),
         ('디커플링',    f"{s.get('decoupling_pct', 0)}%"),
-        ('Climbs',      f"{len(climbs)}개 (HC↓: VAM 최고 {max((c.get('vam_m_per_h', 0) for c in climbs), default=0):.0f})"),
+        ('Climbs',      f"{len(climbs)}개 · VAM 최고 {max((c.get('vam_m_per_h', 0) for c in climbs), default=0):.0f}"),
     ]
     for i, (k, v) in enumerate(specs):
-        sy = INFO_Y + 60 + i * 35
+        sy = INFO_Y + 30 + i * 36
         d.text((PX + 25, sy), k, font=f(F_REG, 18), fill=TEXT_SUB)
         d.text((PX + 180, sy), v, font=f(F_BOLD, 18), fill=TEXT_MAIN)
 
