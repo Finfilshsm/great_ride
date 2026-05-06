@@ -13,13 +13,25 @@
 # 또는 더블클릭 실행 시 RIDE_DIR 비어 있으면 osascript 다이얼로그가 뜸.
 
 # ----- 공통 경로 (자기 위치 기준 동적 결정 — 어느 PC/경로에서도 동작) -----
-# _common.sh의 실제 절대 경로
+# 코드(git managed) 위치 — _common.sh 자기 자신 기준
 _COMMON_SH="${BASH_SOURCE[0]}"
 LIB_DIR="$(cd "$(dirname "$_COMMON_SH")" && pwd)"
 TOOLS_DIR="$(dirname "$LIB_DIR")"
-# BASE_DIR = cycling-tools 부모 폴더 = 라이딩 폴더들의 부모 (예: "Gran Fondo/")
-# osascript 폴더 선택 다이얼로그의 default location으로만 사용. 잘못돼도 사용자가 다이얼로그에서 직접 선택 가능.
-BASE_DIR="$(dirname "$(dirname "$TOOLS_DIR")")"
+
+# BASE_DIR = 라이딩 데이터 폴더들의 부모 (FIT, GoPro, athlete_db.json 위치)
+# 코드와 데이터 분리: 코드는 git, 데이터는 클라우드/외장. PC별로 데이터 위치 다름.
+# 우선순위: $CYCLING_DATA_DIR (env) > 레거시 호환(cycling-tools 부모) > $HOME
+if [ -n "$CYCLING_DATA_DIR" ] && [ -d "$CYCLING_DATA_DIR" ]; then
+  BASE_DIR="$CYCLING_DATA_DIR"
+else
+  # 레거시: cycling-tools가 데이터 폴더 부모에 함께 있던 구조
+  _legacy_base="$(dirname "$(dirname "$TOOLS_DIR")")"
+  if ls -d "$_legacy_base"/2[0-9][0-9][0-9].* 2>/dev/null | head -1 >/dev/null; then
+    BASE_DIR="$_legacy_base"
+  else
+    BASE_DIR="$HOME"
+  fi
+fi
 
 # ----- RIDE_DIR 해석 -----
 resolve_ride_dir() {

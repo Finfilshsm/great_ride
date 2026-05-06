@@ -13,10 +13,14 @@ GoPro 영상 + Garmin .fit 데이터를 데이터 코칭 영상으로 자동 변
 - 📊 라이딩별 동적 카드 10장 (개요·용어·코스·클라임·분석·결론·액션)
 - ☁️ YouTube 자동 업로드 (Brand Account 인증 포함)
 
-## 폴더 구조
+## 폴더 구조 — 코드(git)와 데이터(클라우드) 분리
+
+**코드(git)**: 어느 PC든 동일하게 ~/cycling-tools/. push/pull로 동기화.
+
+**데이터(Google Drive 또는 외장)**: PC별로 다를 수 있음. `$CYCLING_DATA_DIR` 환경변수로 지정.
 
 ```
-<repo_root>/cycling-tools/        # GitHub repo (어느 PC, 어느 경로든 OK)
+~/cycling-tools/                  # GitHub repo (로컬 SSD, git managed)
 ├── .gitignore
 ├── README.md
 ├── INSTALL.command               # 최초 1회 실행
@@ -28,14 +32,21 @@ GoPro 영상 + Garmin .fit 데이터를 데이터 코칭 영상으로 자동 변
     ├── PHASE3_BUILD_FINAL_VIDEOS.command # 인트로/하이라이트/본편 결합
     ├── GENERATE_YOUTUBE_PACKAGE.command  # 메타·챕터·썸네일
     ├── YT_UPLOAD.command                 # Great Ride 채널 업로드
-    ├── lib/                      # Python·shell 모듈
+    ├── lib/                      # Python·shell 모듈 (athlete_db, build_*, seorak)
     ├── intro_video/              # 인트로 PNG 생성기
-    ├── outro_video/              # 아웃트로 자료
-    ├── highlight_b/              # 카드 PNG 자료 (구버전, deprecated)
-    ├── bgm/                      # BGM 폴더 (심볼릭 링크)
-    └── auth/                     # OAuth client_secret.json (.gitignore — 절대 커밋 금지)
+    │   ├── fonts/                # NanumGothic (.gitignore — INSTALL로 다운)
+    │   └── ne_data/              # Natural Earth shapefile (.gitignore)
+    ├── outro_video/
+    ├── bgm/                      # BGM 폴더 (.gitignore — 라이선스/용량)
+    └── auth/                     # OAuth (절대 commit 금지)
+        ├── client_secret.json
+        ├── token.json (첫 인증 시 자동)
+        └── target_channel_id.txt
 
-<repo_root>/2026.X.XX 코스명/        # cycling-tools와 형제 폴더 = 라이딩 폴더
+$CYCLING_DATA_DIR/                # 데이터 폴더 (Google Drive·외장 가능)
+├── athlete_db.json (자동 누적)
+├── Seorak_Granfondo-208km.gpx (A-race 코스)
+└── 2026.X.XX 라이딩 폴더/          # 라이딩별 데이터
 ├── XXX_ACTIVITY.fit              # Garmin
 ├── GX*.MP4                       # GoPro 원본
 ├── _analysis.json (자동 생성)
@@ -78,13 +89,22 @@ bash _파이프라인/YT_UPLOAD.command                  # 업로드
 
 ## 새 PC 셋업 (어느 Mac에서도 동작 — 경로 자동 인식)
 
-### 0. Repo clone
+### 0. Repo clone (홈 디렉토리 권장 — 로컬 SSD, Google Drive 외부)
 ```bash
-git clone https://github.com/Finfilshsm/great_ride.git cycling-tools
-cd cycling-tools
+git clone https://github.com/Finfilshsm/great_ride.git ~/cycling-tools
+cd ~/cycling-tools
 ```
 
-배치할 위치는 자유 (Google Drive 안, ~/projects/, /Volumes/외장/ 등 어디든). 라이딩 폴더가 cycling-tools와 같은 부모 폴더에 있어야 osascript 다이얼로그 default 위치가 잘 잡힘.
+코드는 git이 동기화하니 어느 PC든 동일. 데이터(라이딩 폴더, FIT, GoPro)는 별도 위치 — 다음 단계에서 환경변수로 지정.
+
+### 0-1. 데이터 폴더 위치 환경변수 설정 (PC별로 다름)
+```bash
+echo 'export CYCLING_DATA_DIR="/Volumes/<외장>/<클라우드>/Gran Fondo"' >> ~/.zshrc
+source ~/.zshrc
+```
+- 집 맥미니: `/Volumes/McMini4TB/GoodleDrive_JYJ/JYJ/04_Cycling/Gran Fondo`
+- 사무실 데스크탑: `~/Google Drive/Gran Fondo` 등 PC별로 다른 경로 OK
+- 데이터 폴더에 라이딩 폴더(`2026.X.X...`)들과 `athlete_db.json`, `Seorak_*.gpx`가 있어야 함
 
 ### 1. Homebrew (없으면)
 ```bash
