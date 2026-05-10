@@ -45,6 +45,8 @@ python3 "$LIB_DIR/athlete_db.py" "$(dirname "$RIDE_DIR")" 2>&1 | tail -5
 echo ""
 echo "[A3] 진행도 카드 (journey · load · readiness)..."
 python3 "$LIB_DIR/build_progress_cards.py" "$RIDE_DIR"
+echo "[A3b] 시즌 트렌드 카드 (TSS·디커플링·CTL·Seorak 가능성)..."
+python3 "$LIB_DIR/build_season_trend.py" "$RIDE_DIR"
 echo ""
 echo "[A4] 한국 지도 인트로 (참고용) + TDF 애니메이션 인트로 (메인)..."
 python3 "$LIB_DIR/build_intro_korea_map.py" "$RIDE_DIR"
@@ -111,6 +113,7 @@ declare -a CARD_LIST=(
   "card_seorak_readiness.png|10|02a_seorak_readiness.mp4"
   "card_athlete_journey.png|8|02b_athlete_journey.mp4"
   "card_weekly_load.png|6|02c_weekly_load.mp4"
+  "card_season_trend.png|10|02d_season_trend.mp4"
   "card2_glossary.png|10|03_glossary.mp4"
   "card_course_profile.png|6|04_course_profile.mp4"
   "card_course_climbs.png|6|05_course_climbs.mp4"
@@ -226,7 +229,7 @@ echo ""
 echo "[F] 15개 클립 concat (한국 인트로 → 라이딩 → 누적 분석 → 클라임 → 결론 → 아웃트로)..."
 CONCAT_LIST="$WORK_DIR/_concat_highlight.txt"
 {
-  for f in 00_intro_tdf 01_intro_overview 02a_seorak_readiness 02b_athlete_journey 02c_weekly_load \
+  for f in 00_intro_tdf 01_intro_overview 02a_seorak_readiness 02b_athlete_journey 02c_weekly_load 02d_season_trend \
            03_glossary 04_course_profile 05_course_climbs \
            06_best_intro 07_best_excerpt 08_transition 09_fade_intro 10_fade_excerpt \
            11_analysis 12_conclusion 13_action 14_outro; do
