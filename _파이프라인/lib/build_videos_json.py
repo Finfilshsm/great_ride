@@ -97,6 +97,27 @@ def main():
     # 최종 chronological 정렬 (start_utc 순)
     videos.sort(key=lambda v: v['start_utc'])
 
+    # GoPro 시간 자동 보정 — _analysis.json의 ride_start_utc와 1시간 이상 차이 시 align.
+    # 사례: GoPro timezone 설정 오류 (KST 시각을 UTC로 저장 등) → 8시간 어긋남.
+    # 영상 길이는 정확하니 시작 시각만 ride_start - 5s로 강제 (5s = GoPro 켜고 페달링 시작 갭).
+    a_path = ride / '_analysis.json'
+    if videos and a_path.exists():
+        try:
+            a = json.loads(a_path.read_text(encoding='utf-8'))
+            ride_start = parse_iso(a.get('ride_start_utc', ''))
+            if ride_start:
+                first_gp = parse_iso(videos[0]['start_utc'])
+                diff = abs((first_gp - ride_start).total_seconds())
+                if diff > 3600:  # 1시간+ 차이
+                    new_first = ride_start - timedelta(seconds=5)
+                    offset = new_first - first_gp
+                    print(f"  ⚠ GoPro 시간 어긋남 {diff/3600:.1f}h → 자동 보정 (ride_start - 5s)")
+                    for v in videos:
+                        old = parse_iso(v['start_utc'])
+                        v['start_utc'] = (old + offset).isoformat()
+        except Exception as e:
+            print(f"  ⚠ GoPro 시간 보정 실패 (skip): {e}")
+
     out = {'ride_videos_chronological': [
         {'file': v['file'], 'start_utc': v['start_utc'], 'duration_s': v['duration_s']}
         for v in videos
