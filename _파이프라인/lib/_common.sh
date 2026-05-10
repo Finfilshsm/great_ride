@@ -68,10 +68,13 @@ OSAEOF
 
 # ----- ffmpeg 탐지 -----
 detect_ffmpeg() {
-  # Homebrew PATH
+  # Homebrew PATH (FFMPEG 찾기용)
   if [ -x /opt/homebrew/bin/brew ]; then
     eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
   fi
+  # 시스템 python 우선 (cycling-tools 의존성 fitparse·PIL·pandas·geopandas 등은 /usr/bin/python3 3.9에 설치됨)
+  # — brew shellenv 가 /opt/homebrew/bin 을 PATH 앞에 두면 brew python3.11/3.12가 호출돼 모듈 누락
+  export PATH="/usr/bin:$PATH"
 
   # ffmpeg-full 우선 (libass 포함)
   if [ -x "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" ]; then
