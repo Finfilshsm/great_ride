@@ -339,13 +339,20 @@ def main():
     except FileNotFoundError:
         M = {'코스명': ride.name}
 
-    # 일자 추출
-    from datetime import datetime
-    try:
-        dt = datetime.fromisoformat(A['ride_start_utc'].replace('Z', '+00:00'))
-        date_str = dt.strftime('%Y.%m.%d')
-    except Exception:
-        date_str = ''
+    # 일자 추출 — 폴더명 (예: "2026.5.10.일.0830 헐몰팔") 우선, KST 변환 fallback
+    import re
+    from datetime import datetime, timezone, timedelta
+    date_str = ''
+    m = re.match(r'^(\d{4})\.(\d{1,2})\.(\d{1,2})', ride.name)
+    if m:
+        date_str = f"{m.group(1)}.{int(m.group(2)):02d}.{int(m.group(3)):02d}"
+    else:
+        try:
+            dt = datetime.fromisoformat(A['ride_start_utc'].replace('Z', '+00:00'))
+            dt = dt.astimezone(timezone(timedelta(hours=9)))  # KST
+            date_str = dt.strftime('%Y.%m.%d')
+        except Exception:
+            pass
 
     out_dir = ride / 'output_videos' / '_cards'
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -79,10 +79,12 @@ def load_ride(ride_dir):
     if m:
         out['date'] = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
 
-    # ride_start_utc fallback
+    # ride_start_utc fallback (KST 변환 — 한국 라이딩 기준)
     if 'date' not in out and 'analysis' in out:
         try:
+            from datetime import timezone, timedelta
             dt = datetime.fromisoformat(out['analysis']['ride_start_utc'].replace('Z', '+00:00'))
+            dt = dt.astimezone(timezone(timedelta(hours=9)))  # UTC → KST
             out['date'] = dt.strftime('%Y-%m-%d')
         except Exception:
             pass
